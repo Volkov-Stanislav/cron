@@ -82,11 +82,11 @@ func TestAll(t *testing.T) {
 		r        bounds
 		expected uint64
 	}{
-		{minutes, 0xfffffffffffffff}, // 0-59: 60 ones
-		{hours, 0xffffff},            // 0-23: 24 ones
-		{dom, 0xfffffffe},            // 1-31: 31 ones, 1 zero
-		{months, 0x1ffe},             // 1-12: 12 ones, 1 zero
-		{dow, 0x7f},                  // 0-6: 7 ones
+		{minutes, 0xfffffffffffffff},                   // 0-59: 60 ones
+		{hours, 0xffffff},                              // 0-23: 24 ones
+		{dom, 0xfffffffe},                              // 1-31: 31 ones, 1 zero
+		{months, 0x1ffe},                               // 1-12: 12 ones, 1 zero
+		{dow, (((127<<7+127)<<7+127)<<7+127)<<7 + 127}, // 0-6: 7 ones
 	}
 
 	for _, c := range allBits {
@@ -110,7 +110,7 @@ func TestBits(t *testing.T) {
 	}
 
 	for _, c := range bits {
-		actual := getBits(c.min, c.max, c.step)
+		actual := getBits(c.min, c.max, c.step, 0)
 		if c.expected != actual {
 			t.Errorf("%d-%d/%d => expected %b, got %b",
 				c.min, c.max, c.step, c.expected, actual)

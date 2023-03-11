@@ -56,18 +56,17 @@ type Parser struct {
 //
 // Examples
 //
-//  // Standard parser without descriptors
-//  specParser := NewParser(Minute | Hour | Dom | Month | Dow)
-//  sched, err := specParser.Parse("0 0 15 */3 *")
+//	// Standard parser without descriptors
+//	specParser := NewParser(Minute | Hour | Dom | Month | Dow)
+//	sched, err := specParser.Parse("0 0 15 */3 *")
 //
-//  // Same as above, just excludes time fields
-//  specParser := NewParser(Dom | Month | Dow)
-//  sched, err := specParser.Parse("15 */3 *")
+//	// Same as above, just excludes time fields
+//	specParser := NewParser(Dom | Month | Dow)
+//	sched, err := specParser.Parse("15 */3 *")
 //
-//  // Same as above, just makes Dow optional
-//  specParser := NewParser(Dom | Month | DowOptional)
-//  sched, err := specParser.Parse("15 */3")
-//
+//	// Same as above, just makes Dow optional
+//	specParser := NewParser(Dom | Month | DowOptional)
+//	sched, err := specParser.Parse("15 */3")
 func NewParser(options ParseOption) Parser {
 	optionals := 0
 	if options&DowOptional > 0 {
@@ -247,16 +246,23 @@ func getField(field string, r bounds) (uint64, error) {
 }
 
 // getRange returns the bits indicated by the given expression:
-//   number | number "-" number [ "/" number ]
+//
+//	number | number "-" number [ "/" number ] [ # number ]
+//
 // or error parsing range.
 func getRange(expr string, r bounds) (uint64, error) {
 	var (
-		start, end, step uint
-		rangeAndStep     = strings.Split(expr, "/")
-		lowAndHigh       = strings.Split(rangeAndStep[0], "-")
-		singleDigit      = len(lowAndHigh) == 1
-		err              error
+		start, end, step, nth uint
+		rangeAndStep          = strings.Split(expr, "/")
+		rangeAndNth           = strings.Split(expr, "#")
+		lowAndHigh            = strings.Split(rangeAndStep[0], "-")
+		singleDigit           = len(lowAndHigh) == 1
+		err                   error
 	)
+
+	if len(rangeAndNth) > 1 {
+		lowAndHigh = strings.Split(rangeAndNth[0], "-")
+	}
 
 	var extra uint64
 	if lowAndHigh[0] == "*" || lowAndHigh[0] == "?" {
@@ -301,6 +307,26 @@ func getRange(expr string, r bounds) (uint64, error) {
 		return 0, fmt.Errorf("too many slashes: %s", expr)
 	}
 
+	switch len(rangeAndNth) {
+	case 1:
+		if r.names != nil && r.names["sat"] == 6 {
+			nth = 100
+		} else {
+			nth = 0
+		}
+	case 2:
+		nth, err = mustParseInt(rangeAndNth[1])
+		if err != nil {
+			return 0, err
+		}
+
+		if nth > 0 {
+			extra = 0
+		}
+	default:
+		return 0, fmt.Errorf("too many #s: %s", expr)
+	}
+
 	if start < r.min {
 		return 0, fmt.Errorf("beginning of range (%d) below minimum (%d): %s", start, r.min, expr)
 	}
@@ -314,7 +340,7 @@ func getRange(expr string, r bounds) (uint64, error) {
 		return 0, fmt.Errorf("step of range should be a positive number: %s", expr)
 	}
 
-	return getBits(start, end, step) | extra, nil
+	return getBits(start, end, step, nth) | extra, nil
 }
 
 // parseIntOrName returns the (possibly-named) integer contained in expr.
@@ -341,24 +367,40 @@ func mustParseInt(expr string) (uint, error) {
 }
 
 // getBits sets all bits in the range [min, max], modulo the given step size.
-func getBits(min, max, step uint) uint64 {
+func getBits(min, max, step, nth uint) uint64 {
 	var bits uint64
 
 	// If step is 1, use shifts.
 	if step == 1 {
-		return ^(math.MaxUint64 << (max + 1)) & (math.MaxUint64 << min)
+		bits = ^(math.MaxUint64 << (max + 1)) & (math.MaxUint64 << min)
 	}
 
 	// Else, use a simple loop.
 	for i := min; i <= max; i += step {
 		bits |= 1 << i
 	}
+
+	if nth != 0 {
+		// if nth present, return week bits.
+		if nth == 100 {
+			bits = (((bits<<7+bits)<<7+bits)<<7+bits)<<7 + bits
+		} else {
+			bits = bits << ((nth - 1) * 7)
+		}
+	}
+
 	return bits
 }
 
 // all returns all bits within the given bounds.  (plus the star bit)
 func all(r bounds) uint64 {
-	return getBits(r.min, r.max, 1) | starBit
+	var nth uint
+	if r.names != nil && r.names["sat"] == 6 {
+		nth = 100
+	} else {
+		nth = 0
+	}
+	return getBits(r.min, r.max, 1, nth) | starBit
 }
 
 // parseDescriptor returns a predefined schedule for the expression, or error if none matches.
@@ -393,7 +435,7 @@ func parseDescriptor(descriptor string, loc *time.Location) (Schedule, error) {
 			Hour:     1 << hours.min,
 			Dom:      all(dom),
 			Month:    all(months),
-			Dow:      1 << dow.min,
+			Dow:      (((1<<7+1)<<7+1)<<7+1)<<7 + 1,
 			Location: loc,
 		}, nil
 
