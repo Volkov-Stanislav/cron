@@ -373,11 +373,11 @@ func getBits(min, max, step, nth uint) uint64 {
 	// If step is 1, use shifts.
 	if step == 1 {
 		bits = ^(math.MaxUint64 << (max + 1)) & (math.MaxUint64 << min)
-	}
-
-	// Else, use a simple loop.
-	for i := min; i <= max; i += step {
-		bits |= 1 << i
+	} else {
+		// Else, use a simple loop.
+		for i := min; i <= max; i += step {
+			bits |= 1 << i
+		}
 	}
 
 	if nth != 0 {
